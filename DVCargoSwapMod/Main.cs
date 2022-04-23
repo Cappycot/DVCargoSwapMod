@@ -12,6 +12,8 @@ namespace DVCargoSwapMod
     static class Main
     {
         public static UnityModManager.ModEntry mod;
+        public static Settings settings;
+        
         // Container prefab names.
         public const string CONTAINER_PREFAB = "C_FlatcarContainer";
         public const string CONTAINER_AC = "AC";
@@ -38,12 +40,20 @@ namespace DVCargoSwapMod
         public static StringDictionary containerACPrefabs = new StringDictionary();
         // <container brand string, <new brand, is AC>>
         public static Dictionary<string, Dictionary<string, bool>> skinEntries = new Dictionary<string, Dictionary<string, bool>>();
+        // <new brand, <texture name, texture file path>>
+        public static Dictionary<string, Dictionary<string, string>> skinTexturePaths = new Dictionary<string, Dictionary<string, string>>();
         // <new brand, <texture name, texture>>
-        public static Dictionary<string, Dictionary<string, string>> skinTextures = new Dictionary<string, Dictionary<string, string>>();
+        public static Dictionary<string, Dictionary<string, Texture2D>> skinTextures = new Dictionary<string, Dictionary<string, Texture2D>>();
 
         static bool Load(UnityModManager.ModEntry modEntry)
         {
             mod = modEntry;
+            
+            // Settings
+            try { settings = Settings.Load<Settings>(modEntry); } catch { }
+            modEntry.OnGUI = OnGUI;
+            modEntry.OnSaveGUI = OnSaveGUI;
+            
             HarmonyInstance harmony = HarmonyInstance.Create(modEntry.Info.Id);
             // mod.Logger.Log("Made a HarmonyInstance.");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
@@ -60,6 +70,9 @@ namespace DVCargoSwapMod
 
             return true;
         }
+        
+        static void OnGUI(UnityModManager.ModEntry modEntry) { settings.Draw(modEntry); }
+        static void OnSaveGUI(UnityModManager.ModEntry modEntry) { settings.Save(modEntry); }
 
         /// <summary>
         /// Damn I need to write a description here.
@@ -72,7 +85,7 @@ namespace DVCargoSwapMod
                 return;
 
             string[] skinPrefabPaths = Directory.GetDirectories(mainDir);
-            
+
             // Traverse folders of skin prefab categories.
             foreach (string skinPrefabPath in skinPrefabPaths)
             {
@@ -111,28 +124,44 @@ namespace DVCargoSwapMod
                     }
 
                     // Don't read any file for default skin.
-                    if (!brandName.Equals(DEFAULT_BRAND, StringComparison.OrdinalIgnoreCase))
+                    if (brandName.Equals(DEFAULT_BRAND, StringComparison.OrdinalIgnoreCase)) 
+                        continue;
+                    
+                    // For all files in the folder in the skin prefab category.
+                    foreach (string skinFilePath in skinFilePaths)
                     {
-                        // For all files in the folder in the skin prefab category.
-                        foreach (string skinFilePath in skinFilePaths)
-                        {
-                            string fileName = Path.GetFileNameWithoutExtension(new FileInfo(skinFilePath).Name);
-                            // TODO: Delete line if Altfuture fixes typo in file name.
-                            fileName = fileName.Replace("ContainersAtlas_01", "ContainersAltas_01");
+                        string fileName = Path.GetFileNameWithoutExtension(new FileInfo(skinFilePath).Name);
+                        // TODO: Delete line if Altfuture fixes typo in file name.
+                        fileName = fileName.Replace("ContainersAtlas_01", "ContainersAltas_01");
 
-                            // Add texture file for brand entry.
-                            if (!skinTextures.ContainsKey(brandName))
-                                skinTextures[brandName] = new Dictionary<string, string>();
-                            // Check if file already read for skin texture.
-                            if (!skinTextures[brandName].ContainsKey(fileName))
-                            {
-                                // Read file
-                                skinTextures[brandName].Add(fileName, skinFilePath);
-                            }
-                        }
+                        // Add texture file for brand entry.
+                        if (!skinTexturePaths.ContainsKey(brandName))
+                            skinTexturePaths[brandName] = new Dictionary<string, string>();
+                        // Check if file already read for skin texture.
+                        if (!skinTexturePaths[brandName].ContainsKey(fileName))
+                            // Add file path
+                            skinTexturePaths[brandName].Add(fileName, skinFilePath);
+
+                        if (settings.loadOnDemand)
+                            continue;
+
+                        // Load texture into memory
+                        skinTextures[brandName].Add(fileName, LoadTextureFromDisk(skinFilePath));
                     }
                 }
             }
+        }
+
+        internal static Texture2D LoadTextureFromDisk(string path) 
+        {
+            Texture2D skinTexture = new Texture2D(1, 1);
+            if (!skinTexture.LoadImage(File.ReadAllBytes(path)))
+                return null;
+            if (skinTexture.height != skinTexture.width)
+                mod.Logger.Warning($"The texture located at '{path}' is not a square and may render incorrectly.");
+            else if (skinTexture.height != 8192)
+                mod.Logger.Warning($"The texture located at '{path}' is not 8192x8192 and may render incorrectly.");
+            return skinTexture;
         }
     }
 
@@ -201,15 +230,13 @@ namespace DVCargoSwapMod
                     if (!m.material.HasProperty(t))
                         continue;
                     Texture texture = m.material.GetTexture(t);
-                    if (!(texture is Texture2D) || !Main.skinTextures[__state].ContainsKey(texture.name)) 
+                    if (!(texture is Texture2D) || !Main.skinTexturePaths[__state].ContainsKey(texture.name)) 
                         continue;
-                    Texture2D skinTexture = new Texture2D(texture.width, texture.height);
-                    if (!skinTexture.LoadImage(File.ReadAllBytes(Main.skinTextures[__state][texture.name]))) 
+                    Texture2D skinTexture = (Main.settings.loadOnDemand) 
+                        ? Main.LoadTextureFromDisk(Main.skinTexturePaths[__state][texture.name])
+                        : Main.skinTextures[__state][texture.name];
+                    if (skinTexture == null)
                         continue;
-                    if (skinTexture.height != skinTexture.width)
-                        Main.mod.Logger.Warning(string.Format("The texture located at '{0}' is not a square and may render incorrectly.", texture.name));
-                    else if (skinTexture.height != 8192)
-                        Main.mod.Logger.Warning(string.Format("The texture located at '{0}' is not 8192x8192 and may render incorrectly.", texture.name));
                     m.material.SetTexture(t, skinTexture);
                 }
                 // m.material.SetTexture("_MainTex", Main.testContainerSkin);
