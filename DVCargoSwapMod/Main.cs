@@ -140,13 +140,15 @@ namespace DVCargoSwapMod
                         // Check if file already read for skin texture.
                         if (!skinTexturePaths[brandName].ContainsKey(fileName))
                             // Add file path
-                            skinTexturePaths[brandName].Add(fileName, skinFilePath);
+                            skinTexturePaths[brandName][fileName] = skinFilePath;
 
                         if (settings.loadOnDemand)
                             continue;
 
                         // Load texture into memory
-                        skinTextures[brandName].Add(fileName, LoadTextureFromDisk(skinFilePath));
+                        if (!skinTextures.ContainsKey(brandName))
+                            skinTextures[brandName] = new Dictionary<string, Texture2D>();
+                        skinTextures[brandName][fileName] = LoadTextureFromDisk(skinFilePath);
                     }
                 }
             }
